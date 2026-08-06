@@ -1,0 +1,10 @@
+engine: qwen3-base
+model: Qwen/Qwen3-TTS-12Hz-1.7B-Base
+dtype: bfloat16
+device: cuda
+host: 127.0.0.1
+port: 7860
+strip_tags: true
+warmup: true
+max_text_length: 500
+default_voice: null
