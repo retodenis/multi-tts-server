@@ -14,4 +14,9 @@ def create_engine(cfg: Config) -> Engine:
 
         logger.info("Selecting engine: qwen3 (%s)", cfg.model)
         return Qwen3Engine()
+    if cfg.engine == "xtts":
+        from .xtts import XttsEngine
+
+        logger.info("Selecting engine: xtts")
+        return XttsEngine()
     raise ValueError(f"Unknown engine: {cfg.engine!r}")

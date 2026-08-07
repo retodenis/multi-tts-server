@@ -21,6 +21,7 @@ ENGINE_PRESETS = {
     "qwen3-0.6b-base": "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
     "qwen3-customvoice": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
     "qwen3-0.6b-customvoice": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "xtts": "coqui/XTTS-v2",
 }
 
 

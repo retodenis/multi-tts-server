@@ -171,7 +171,7 @@ def save_transcript_endpoint(req: TranscriptRequest):
 def health():
     engine = get_engine()
     config = get_config()
-    model_loaded = getattr(engine, "_model", None) is not None
+    model_loaded = getattr(engine, "_model", None) is not None or getattr(engine, "_tts", None) is not None
     return {
         "status": "healthy",
         "model_loaded": model_loaded,
@@ -180,6 +180,7 @@ def health():
         "engine": engine.name,
         "model": config.model,
         "voices": list_voices(),
+        "presets": engine.supported_voices() if engine.supported_voices() else [],
     }
 
 
@@ -231,6 +232,9 @@ async def tts_stream(
     text: str = "Привет! Как дела?",
     speaker_wav: str | None = None,
     language: str | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    repetition_penalty: float | None = None,
 ):
     engine = get_engine()
     config = get_config()
@@ -260,7 +264,14 @@ async def tts_stream(
 
         loop = asyncio.get_running_loop()
         for i, sentence in enumerate(sentences):
-            req = SynthesisRequest(text=sentence, speaker_wav=speaker_wav, language=language)
+            req = SynthesisRequest(
+                text=sentence,
+                speaker_wav=speaker_wav,
+                language=language,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+            )
             result = await loop.run_in_executor(None, _synthesize_sync, engine, req, config)
             if first_chunk_ms is None:
                 first_chunk_ms = (time.perf_counter() - started) * 1000.0

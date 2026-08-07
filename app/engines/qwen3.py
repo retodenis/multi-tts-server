@@ -69,8 +69,13 @@ class Qwen3Engine(Engine):
                     cfg.model, **kwargs, attn_implementation="flash_attention_2"
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Flash Attention 2 unavailable (%s); falling back.", exc)
-                self._model = Qwen3TTSModel.from_pretrained(cfg.model, **kwargs)
+                logger.warning("Flash Attention 2 unavailable (%s); using SDPA.", exc)
+                try:
+                    self._model = Qwen3TTSModel.from_pretrained(
+                        cfg.model, **kwargs, attn_implementation="sdpa"
+                    )
+                except Exception:  # noqa: BLE001
+                    self._model = Qwen3TTSModel.from_pretrained(cfg.model, **kwargs)
         else:
             self._model = Qwen3TTSModel.from_pretrained(cfg.model, **kwargs)
         logger.info("Qwen3 loaded: %s on %s (%s)", cfg.model, device_map, dtype)
@@ -78,9 +83,14 @@ class Qwen3Engine(Engine):
     def _resolve_dtype(self, dtype: str):
         import torch
 
-        if dtype == "fp32" or self._cfg is None:
+        if self._cfg is None:
             return torch.float32
-        if dtype == "bf16" and not (self._cfg.device == "cpu"):
+        d = (dtype or "").strip().lower()
+        if d in ("fp16", "float16", "half"):
+            return torch.float16
+        if d in ("bf16", "bfloat16"):
+            if self._cfg.device == "cpu":
+                return torch.float32
             try:
                 torch.zeros(1, device="cuda", dtype=torch.bfloat16)
                 return torch.bfloat16
@@ -94,7 +104,9 @@ class Qwen3Engine(Engine):
         try:
             text = "Раз, два, три — проверка связи."
             if "CustomVoice" in self._cfg.model:
-                self._model.generate_custom_voice(text=text, language="Russian", speaker="Ryan")
+                self._model.generate_custom_voice(
+                    text=text, language="Russian", speaker=self._default_speaker()
+                )
             else:
                 self._model.generate_voice_clone(
                     text=text, language="Russian",
@@ -106,6 +118,12 @@ class Qwen3Engine(Engine):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Qwen3 warmup failed: %s", exc)
 
+    def _default_speaker(self) -> str:
+        dflt = self._cfg.default_voice if self._cfg else None
+        if dflt and dflt.lower() in {s.lower() for s in _CUSTOMVOICE_SPEAKERS}:
+            return next(s for s in _CUSTOMVOICE_SPEAKERS if s.lower() == dflt.lower())
+        return "Vivian"
+
     # -- voices ------------------------------------------------------------
 
     def register_voice(self, name: str, wav_bytes: bytes, transcript: str | None = None) -> None:
@@ -115,8 +133,12 @@ class Qwen3Engine(Engine):
 
     def supported_voices(self) -> list[str]:
         if self._is_customvoice():
-            return list(_CUSTOMVOICE_SPEAKERS)
+            return self._customvoice_speakers()
         return list_voices()
+
+    def _customvoice_speakers(self) -> list[str]:
+        supported = self._model.get_supported_speakers() if self._model is not None else None
+        return list(supported or _CUSTOMVOICE_SPEAKERS)
 
     def languages(self) -> list[str]:
         return ["en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"]
@@ -143,9 +165,9 @@ class Qwen3Engine(Engine):
         start = time.perf_counter()
 
         if self._is_customvoice():
-            wavs, sr = self._generate_custom_voice(text, voice_key, lang, temperature, top_p)
+            wavs, sr = self._generate_custom_voice(text, voice_key, lang, temperature, top_p, repetition_penalty)
         else:
-            wavs, sr = self._generate_clone(text, voice_key, lang, temperature, top_p)
+            wavs, sr = self._generate_clone(text, voice_key, lang, temperature, top_p, repetition_penalty)
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         audio = np.asarray(wavs[0], dtype=np.float32).reshape(-1)
@@ -156,15 +178,17 @@ class Qwen3Engine(Engine):
             audio_duration_s=len(audio) / sr,
         )
 
-    def _generate_custom_voice(self, text, voice_key, lang, temperature, top_p):
-        speaker = "Ryan"
-        if voice_key and voice_key.lower() in {s.lower() for s in _CUSTOMVOICE_SPEAKERS}:
-            speaker = next(s for s in _CUSTOMVOICE_SPEAKERS if s.lower() == voice_key.lower())
+    def _generate_custom_voice(self, text, voice_key, lang, temperature, top_p, repetition_penalty=None):
+        speaker = self._default_speaker()
+        if voice_key and voice_key.lower() in {s.lower() for s in self._customvoice_speakers()}:
+            speaker = next(s for s in self._customvoice_speakers() if s.lower() == voice_key.lower())
         kwargs = {}
         if temperature is not None:
             kwargs["temperature"] = float(temperature)
         if top_p is not None:
             kwargs["top_p"] = float(top_p)
+        if repetition_penalty is not None:
+            kwargs["repetition_penalty"] = float(repetition_penalty)
         return self._model.generate_custom_voice(text=text, language=lang, speaker=speaker, **kwargs)
 
     def _get_prompt(self, voice_key: str | None):
@@ -194,13 +218,15 @@ class Qwen3Engine(Engine):
         self._prompt_cache[voice_key] = prompt
         return prompt, False
 
-    def _generate_clone(self, text, voice_key, lang, temperature, top_p):
+    def _generate_clone(self, text, voice_key, lang, temperature, top_p, repetition_penalty=None):
         prompt, from_cache = self._get_prompt(voice_key)
         kwargs = {}
         if temperature is not None:
             kwargs["temperature"] = float(temperature)
         if top_p is not None:
             kwargs["top_p"] = float(top_p)
+        if repetition_penalty is not None:
+            kwargs["repetition_penalty"] = float(repetition_penalty)
 
         if prompt is not None:
             return self._model.generate_voice_clone(

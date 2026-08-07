@@ -101,8 +101,10 @@ async function refreshHealth() {
     st.className = 'status ' + (j.status === 'healthy' ? 'ok' : 'no');
     const sel = $('voice');
     const current = sel.value;
+    const presets = j.presets || [];
+    const voices = [...new Set([...(j.voices || []), ...presets])];
     sel.innerHTML = '<option value="">Встроенный</option>';
-    for (const v of (j.voices || [])) {
+    for (const v of voices) {
       const o = document.createElement('option');
       o.value = v; o.textContent = v; sel.appendChild(o);
     }
@@ -152,6 +154,12 @@ async function speak() {
   const voice = $('voice').value;
   const params = new URLSearchParams({ text, language: $('language').value });
   if (voice) params.set('speaker_wav', voice);
+  const temp = parseFloat($('temp').value);
+  const top_p = parseFloat($('top_p').value);
+  const rp = parseFloat($('rp').value);
+  if (!isNaN(temp)) params.set('temperature', temp);
+  if (!isNaN(top_p)) params.set('top_p', top_p);
+  if (!isNaN(rp)) params.set('repetition_penalty', rp);
   const started = performance.now();
   let firstChunk = null;
   const t0 = Date.now();

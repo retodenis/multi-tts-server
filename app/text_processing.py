@@ -29,19 +29,15 @@ def split_sentences(text: str, max_len: int = 500) -> list[str]:
         return []
 
     parts: list[str] = []
-    buffer = ""
     for line in text.split("\n"):
         line = line.strip()
         if not line:
             continue
         for chunk in _split_on_punct(line):
             if len(chunk) > max_len:
-                for sub in _hard_split(chunk, max_len):
-                    buffer = _append(parts, buffer, sub, max_len)
+                parts.extend(_hard_split(chunk, max_len))
             else:
-                buffer = _append(parts, buffer, chunk, max_len)
-    if buffer:
-        parts.append(buffer.strip())
+                parts.append(chunk)
     return [p for p in parts if p]
 
 
@@ -62,12 +58,3 @@ def _hard_split(text: str, max_len: int) -> list[str]:
     if cur:
         chunks.append(cur)
     return chunks
-
-
-def _append(parts: list[str], buffer: str, chunk: str, max_len: int) -> str:
-    if buffer and len(buffer) + 1 + len(chunk) > max_len:
-        parts.append(buffer.strip())
-        buffer = chunk
-    else:
-        buffer = f"{buffer} {chunk}".strip() if buffer else chunk
-    return buffer
